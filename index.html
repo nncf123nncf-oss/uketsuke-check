@@ -226,7 +226,7 @@ input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);
   }
   var NUM_HEAD = /^(?:[0-9０-９]+\s*[.)．）、,，:：]|[(（][0-9０-９]+[)）]|[0-9０-９]+[\s　]+|[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|[・•\-－*＊])\s*/;
   // 払い終えたことを表す語だけを事前払いとして読む
-  var PAID_WORD = /(?:振込|振り込み|支払い?|お支払い|入金|決済)(?:済み?|完了)|^済み?$/;
+  var PAID_WORD = /(?:振込み?|振り込み|払込み?|払い込み|支払い?|お支払い|事前払い|前払い|入金|決済)(?:済み?|完了)|^済み?$/;
   var NOT_PAID = /未|当日|現地|まだ|待ち|予定|キャンセル|返金/;
   function paidWord(w) { return !!w && !NOT_PAID.test(w) && PAID_WORD.test(w); }
   function words(text) {
@@ -236,7 +236,7 @@ input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);
   }
   function isPaid(text) { return words(text).some(paidWord); }
   function stripPaid(note) { return clean(words(note).filter(function (w) { return !paidWord(w); }).join(' '), 60); }
-  var TAIL_PAID = /^(.*?)[\s　]+((?:振込|振り込み|支払い?|お支払い|入金|決済)(?:済み?|完了))$/;
+  var TAIL_PAID = /^(.*?)[\s　]+((?:振込み?|振り込み|払込み?|払い込み|支払い?|お支払い|事前払い|前払い|入金|決済)(?:済み?|完了))$/;
   var SEP = /\t|,|，/;
   function isHeaderCell(c) { return HEADER_WORDS.indexOf(clean(c).replace(/\s/g, '')) >= 0; }
   function parseRoster(text) {
