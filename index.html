@@ -52,11 +52,14 @@ input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);
 .tot .n small{font-size:12px;font-weight:700}
 .tot .m{display:block;font-size:13px;line-height:16px;min-height:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .mini{display:none;margin:0 0 6px;font-size:13px;font-weight:700;line-height:1.5;font-variant-numeric:tabular-nums}
-body.searching .totals{display:none}
-body.searching .mini{display:block}
-body.searching{padding-bottom:45vh}
-body.searching .subline,body.searching .filters{display:none}
-body.searching #list{margin-top:10px}
+@media (max-width:959px){
+  /* スマホで検索中は、キーボードで狭くなるので合計を1行に縮める */
+  body.searching .totals{display:none}
+  body.searching .mini{display:block}
+  body.searching{padding-bottom:45vh}
+  body.searching .subline,body.searching .filters{display:none}
+  body.searching #list{margin-top:10px}
+}
 .tot.due{border-color:var(--danger)}
 .tot.due .k,.tot.due .n,.tot.due .m{color:var(--danger)}
 .tot.due.zero{border-color:var(--border)}
@@ -125,8 +128,8 @@ body.searching #list{margin-top:10px}
   <section id="setup">
     <div class="panel">
       <label class="lbl" for="roster">名簿を貼る（1行に1人）</label>
-      <textarea id="roster" placeholder="例）&#10;1. 田中 美咲&#10;2. 佐藤 健&#10;3. 鈴木 由紀　振込済"></textarea>
-      <p class="hint">LINEやメモからのコピー、表計算の列をそのまま貼れます。行の先頭の番号は外します。タブやカンマで区切った2列目以降（ふりがな・メモなど）は名前の下に小さく出し、探すときにも使います。そこに「振込済」「支払済」などがある人は、事前払い済みとして読み込みます。</p>
+      <textarea id="roster" placeholder="例）&#10;1. 田中 美咲, たなか みさき&#10;2. 佐藤 健, さとう けん, 振込済&#10;3. 鈴木 由紀"></textarea>
+      <p class="hint">LINEやメモからのコピー、表計算の列をそのまま貼れます。行の先頭の番号は外します。タブやカンマで区切った2列目以降（ふりがな・メモなど）は名前の下に小さく出し、探すときにも使います。そこに「振込済」「支払済」「入金済」がある人は、事前払い済みとして読み込みます（「当日払い」「未払い」などは未収のまま）。</p>
       <p class="err" id="rosterErr"></p>
     </div>
     <div class="panel">
@@ -207,11 +210,11 @@ body.searching #list{margin-top:10px}
   var C = String.fromCharCode;
   var CTRL = new RegExp('[' + C(0) + '-' + C(31) + C(127) + C(0x2028) + C(0x2029) + ']', 'g');
   var MAX_PEOPLE = 200, MAX_NAME = 40, MAX_PRICE = 999999;
-  var HEADER_WORDS = ['名前', '氏名', 'お名前', 'なまえ', '参加者', '参加者名'];
+  var HEADER_WORDS = ['名前', '氏名', 'お名前', 'なまえ', '参加者', '参加者名', '参加者のお名前', 'ご氏名'];
 
   function clean(s, max) {
     var t = String(s == null ? '' : s).replace(CTRL, ' ').replace(/\s+/g, ' ').trim();
-    if (max && t.length > max) t = t.slice(0, max);
+    if (max) { var a = Array.from(t); if (a.length > max) t = a.slice(0, max).join(''); }
     return t;
   }
   // 探すための正規化：全角半角・半角カナ（NFKC）、空白、カタカナ→ひらがな、大文字小文字
@@ -221,21 +224,48 @@ body.searching #list{margin-top:10px}
     t = t.replace(/\s+/g, '').toLowerCase();
     return t.replace(/[ァ-ヶ]/g, function (c) { return C(c.charCodeAt(0) - 0x60); });
   }
-  var NUM_HEAD = /^(?:[0-9０-９]+\s*[.)．）、,，:：]|[①-⑳㉑-㉟㊱-㊿]|[・•\-－*＊])\s*/;
+  var NUM_HEAD = /^(?:[0-9０-９]+\s*[.)．）、,，:：]|[(（][0-9０-９]+[)）]|[0-9０-９]+[\s　]+|[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|[・•\-－*＊])\s*/;
+  // 払い終えたことを表す語だけを事前払いとして読む
+  var PAID_WORD = /(?:振込|振り込み|支払い?|お支払い|入金|決済)(?:済み?|完了)|^済み?$/;
+  var NOT_PAID = /未|当日|現地|まだ|待ち|予定|キャンセル|返金/;
+  function paidWord(w) { return !!w && !NOT_PAID.test(w) && PAID_WORD.test(w); }
+  function words(text) {
+    var t = String(text || '');
+    try { t = t.normalize('NFKC'); } catch (e) {}
+    return t.split(/\s+/);
+  }
+  function isPaid(text) { return words(text).some(paidWord); }
+  function stripPaid(note) { return clean(words(note).filter(function (w) { return !paidWord(w); }).join(' '), 60); }
+  var TAIL_PAID = /^(.*?)[\s　]+((?:振込|振り込み|支払い?|お支払い|入金|決済)(?:済み?|完了))$/;
+  var SEP = /\t|,|，/;
+  function isHeaderCell(c) { return HEADER_WORDS.indexOf(clean(c).replace(/\s/g, '')) >= 0; }
   function parseRoster(text) {
-    var lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
-    var people = [], over = 0;
-    for (var i = 0; i < lines.length; i++) {
-      var raw = lines[i];
-      if (!raw.trim()) continue;
-      var cols = raw.split(/\t|,|，/);
-      var name = clean(cols[0].replace(NUM_HEAD, ''), MAX_NAME);
+    var lines = String(text == null ? '' : text).split(/\r\n|\r|\n/).filter(function (l) { return l.trim(); });
+    var people = [], over = 0, nameCol = -1, start = 0;
+    // 見出し行（「名前」「お名前」など）があれば、その列を名前の列にする
+    if (lines.length && SEP.test(lines[0])) {
+      var hc = lines[0].split(SEP);
+      for (var j = 0; j < hc.length; j++) if (isHeaderCell(hc[j])) { nameCol = j; break; }
+      if (nameCol >= 0) start = 1;
+    } else if (lines.length && isHeaderCell(lines[0])) start = 1;
+    for (var i = start; i < lines.length; i++) {
+      var raw = lines[i], cols;
+      if (SEP.test(raw)) {
+        cols = raw.split(SEP);
+        if (nameCol >= 0) {
+          cols = [cols[nameCol] || ''].concat(cols.filter(function (_, k) { return k !== nameCol; }));
+        } else if (cols.length > 1 && /^\s*(?:No\.?|[0-9０-９]+)\s*$/i.test(cols[0])) {
+          cols = cols.slice(1); // 1列目が番号だけなら飛ばす
+        }
+      } else {
+        var m = TAIL_PAID.exec(raw.trim());
+        cols = m ? [m[1], m[2]] : [raw];
+      }
+      var name = clean(String(cols[0]).replace(NUM_HEAD, ''), MAX_NAME);
       if (!name) continue;
-      if (people.length === 0 && HEADER_WORDS.indexOf(name) >= 0) continue;
-      var rest = cols.slice(1).join(' ');
-      var pre = !/未/.test(rest) && /済|払|振込/.test(rest);
+      var rest = cols.slice(1).filter(function (c) { return !/^\s*(?:No\.?|[0-9０-９]+)\s*$/i.test(c); }).join(' ');
       if (people.length >= MAX_PEOPLE) { over++; continue; }
-      people.push({ name: name, note: clean(rest, 60), pay: pre ? 'pre' : 'due', here: false, at: '', added: false });
+      people.push({ name: name, note: clean(rest, 60), pay: isPaid(rest) ? 'pre' : 'due', here: false, at: '', added: false });
     }
     return { people: people, over: over };
   }
@@ -283,7 +313,7 @@ body.searching #list{margin-top:10px}
     out.push('まだ来ていない ' + away.length + '人' + (awayDue ? '（うち未収 ' + awayDue + '人）' : '') + (away.length ? '：' + away.map(function (p) { return p.name; }).join('、') : ''));
     return out.join('\n');
   }
-  window.UKCore = { clean: clean, norm: norm, parseRoster: parseRoster, parsePrice: parsePrice, yen: yen, count: count, dupNames: dupNames, memo: memo, stamp: stamp, hhmm: hhmm };
+  window.UKCore = { isPaid: isPaid, stripPaid: stripPaid, clean: clean, norm: norm, parseRoster: parseRoster, parsePrice: parsePrice, yen: yen, count: count, dupNames: dupNames, memo: memo, stamp: stamp, hhmm: hhmm };
 })();
 </script>
 
@@ -298,7 +328,7 @@ body.searching #list{margin-top:10px}
 
   function save() {
     if (!canSave) return;
-    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, loaded: state.loaded, people: state.people, priceRaw: state.priceRaw, seq: state.seq })); }
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, loaded: state.loaded, people: state.people, priceRaw: state.priceRaw, seq: state.seq, roster: state.loaded ? '' : (state.roster || '') })); }
     catch (e) { canSave = false; noSaveNote(); }
   }
   function noSaveNote() {
@@ -311,12 +341,13 @@ body.searching #list{margin-top:10px}
     try {
       var d = JSON.parse(raw);
       if (!d || d.v !== 1 || !Array.isArray(d.people)) return;
-      state.people = d.people.slice(0, 260).map(function (p, i) {
+      state.people = d.people.slice(0, 400).map(function (p, i) {
         return { id: typeof p.id === 'number' ? p.id : i + 1, name: K.clean(p.name, 40) || '（名前なし）', note: K.clean(p.note, 60),
           pay: (p.pay === 'pre' || p.pay === 'got') ? p.pay : 'due', here: !!p.here,
           at: /^\d{2}:\d{2}$/.test(p.at || '') ? p.at : '', added: !!p.added };
       });
-      state.seq = Math.max(d.seq || 0, state.people.length);
+      state.seq = Math.max(d.seq || 0, state.people.length, state.people.reduce(function (m, p) { return Math.max(m, p.id); }, 0));
+      state.roster = typeof d.roster === 'string' ? d.roster.slice(0, 20000) : '';
       state.priceRaw = typeof d.priceRaw === 'string' ? d.priceRaw.slice(0, 20) : '';
       var pr = K.parsePrice(state.priceRaw);
       state.price = typeof pr === 'number' && !isNaN(pr) ? pr : null;
@@ -363,6 +394,7 @@ body.searching #list{margin-top:10px}
     var list = $('list');
     list.textContent = '';
     var rows = state.people.filter(function (p) {
+      if (q) return K.norm(p.name + ' ' + (p.note || '')).indexOf(q) >= 0; // 検索中は絞り込みを無視して全員から探す
       if (state.filter === 'notyet' && p.here) return false;
       if (state.filter === 'due' && p.pay !== 'due') return false;
       return !q || K.norm(p.name + ' ' + (p.note || '')).indexOf(q) >= 0;
@@ -421,7 +453,7 @@ body.searching #list{margin-top:10px}
     $('setup').hidden = state.loaded;
     $('desk').hidden = !state.loaded;
     if (state.loaded) { $('price2').value = state.priceRaw; setPrice(state.priceRaw, 'price2Err'); refresh(); }
-    else { $('price').value = state.priceRaw; }
+    else { $('price').value = state.priceRaw; if (state.roster) $('roster').value = state.roster; }
   }
 
   // 名簿を読み込む
@@ -442,6 +474,7 @@ body.searching #list{margin-top:10px}
   });
   function MAXMSG(n) { return '200人までしか読み込めません。201人目以降の' + n + '人は読み込んでいません。'; }
   $('price').addEventListener('input', function () { setPrice(this.value, 'priceErr'); save(); });
+  $('roster').addEventListener('input', function () { state.roster = this.value.slice(0, 20000); save(); });
   $('price2').addEventListener('input', function () { setPrice(this.value, 'price2Err'); refresh(); });
   $('q').addEventListener('input', renderList);
   $('q').addEventListener('focus', function () { document.body.classList.add('searching'); });
@@ -469,6 +502,7 @@ body.searching #list{margin-top:10px}
     hold(p.id);
     if (act === 'here') {
       if (!p.here) { arrive(p); afterMark(); }
+      else if (p.added) ask(p.name + 'さんの当日追加を取り消して、名簿から外しますか？', '外す', function () { state.people = state.people.filter(function (x) { return x !== p; }); afterMark(); });
       else ask(p.name + 'さんの「来場 ' + p.at + '」を取り消しますか？', '取り消す', function () { p.here = false; p.at = ''; afterMark(); });
     } else if (act === 'got') {
       p.pay = 'got'; arrive(p); afterMark();
@@ -482,10 +516,13 @@ body.searching #list{margin-top:10px}
 
   $('addBtn').addEventListener('click', function () {
     var raw = K.clean($('q').value, 40); if (!raw) return;
-    var p = { id: ++state.seq, name: raw, pay: 'due', here: false, at: '', added: true };
-    arrive(p);
-    state.people.push(p);
-    refresh();
+    ask('「' + raw + '」さんを名簿に追加して、来場にします（支払いは未収から始まります）。', '追加する', function () {
+      var p = { id: ++state.seq, name: raw, note: '', pay: 'due', here: false, at: '', added: true };
+      arrive(p);
+      state.people.push(p);
+      $('q').value = '';
+      refresh();
+    });
   });
 
   // ダイアログ
@@ -528,11 +565,12 @@ body.searching #list{margin-top:10px}
 
   $('reloadBtn').addEventListener('click', function () {
     ask('名簿を貼り直すと、いまの受付の印（来場・支払い）は消えます。精算メモが必要なら、先にコピーしてください。', '貼り直す', function () {
-      $('roster').value = state.people.filter(function (p) { return !p.added; }).map(function (p) {
-        var rest = p.note || '';
-        if (p.pay === 'pre' && !(/済|払|振込/.test(rest) && !/未/.test(rest))) rest = (rest ? rest + ' ' : '') + '振込済';
-        return p.name + (rest ? '\t' + rest : '');
+      var text = state.people.filter(function (p) { return !p.added; }).map(function (p) {
+        var rest = K.stripPaid(p.note);
+        if (p.pay === 'pre') rest = (rest ? rest + ', ' : '') + '振込済';
+        return p.name + (rest ? ', ' + rest : '');
       }).join('\n');
+      $('roster').value = text; state.roster = text;
       state.loaded = false; state.people = []; save(); show(); window.scrollTo(0, 0);
     });
   });
