@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>受付の名簿チェック</title>
+<meta name="description" content="手元の名簿を貼るだけで、講座や交流会の受付ができるページです。名前の一部で探して「来た」「受け取った」を押すと、来場人数と、未収・受け取り済みの合計がその場で出ます。">
+<style>
+:root{
+  --bg:#F7F7F0; --surface:#FFFFFF; --text:#1F1F14; --text2:#4A4A38; --text3:#66654F;
+  --accent:#5A5A2E; --on-accent:#FFFFFF; --accent-weak:#EFEEDC; --border:#D4D3BE;
+  --danger:#B3261E; --danger-bg:#FBEAE8;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#14140E; --surface:#1F1F17; --text:#F0EFE2; --text2:#CBC9B3; --text3:#A9A78F;
+    --accent:#D3CF94; --on-accent:#1A1A0E; --accent-weak:#2C2B1C; --border:#3C3B2A;
+    --danger:#F2B8B5; --danger-bg:#3A1F22;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:150px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;font-size:16px;line-height:1.6}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+header h1{font-size:24px;line-height:1.3;margin:4px 0 6px}
+header .lead{margin:0 0 12px;color:var(--text2)}
+.save-note{margin:0 0 14px;padding:8px 12px;border-left:4px solid var(--accent);background:var(--accent-weak);font-size:14px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin:0 0 12px}
+h2{font-size:17px;margin:0 0 8px}
+label.lbl{display:block;font-weight:700;margin:0 0 6px}
+.hint{color:var(--text2);font-size:14px;margin:6px 0 0}
+textarea,input[type=text],input[type=search]{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font:inherit;font-size:18px}
+textarea{line-height:1.5;resize:vertical}
+#roster{min-height:220px}
+.price-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+.price-row input{min-height:56px}
+.price-row .yen{font-weight:700}
+.err{margin:6px 0 0;color:var(--danger);font-weight:700;font-size:14px}
+.err:empty{display:none}
+input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.big{display:block;width:100%;min-height:60px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);font:inherit;font-size:20px;font-weight:800;cursor:pointer;margin-top:12px}
+.sub{display:block;width:100%;min-height:52px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:16px;cursor:pointer;margin-top:10px}
+.sub.warn{color:var(--danger);border-color:var(--danger)}
+
+/* 受付中：上に固定する合計と検索欄 */
+.top{position:sticky;top:0;z-index:10;background:var(--bg);padding:6px 0 8px;margin:0 -16px;padding-left:16px;padding-right:16px;border-bottom:1px solid var(--border)}
+.totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.tot{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px 4px;min-width:0;height:64px;text-align:center;overflow:hidden}
+.tot .k{display:block;font-size:12px;line-height:16px;color:var(--text2);font-weight:700;white-space:nowrap}
+.tot .n{display:block;font-size:18px;line-height:24px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tot .n small{font-size:12px;font-weight:700}
+.tot .m{display:block;font-size:13px;line-height:16px;min-height:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mini{display:none;margin:0 0 6px;font-size:13px;font-weight:700;line-height:1.5;font-variant-numeric:tabular-nums}
+body.searching .totals{display:none}
+body.searching .mini{display:block}
+body.searching{padding-bottom:45vh}
+body.searching .subline,body.searching .filters{display:none}
+body.searching #list{margin-top:10px}
+.tot.due{border-color:var(--danger)}
+.tot.due .k,.tot.due .n,.tot.due .m{color:var(--danger)}
+.tot.due.zero{border-color:var(--border)}
+.tot.due.zero .k,.tot.due.zero .n,.tot.due.zero .m{color:var(--text)}
+.subline{margin:8px 0 0;font-size:12px;color:var(--text2);line-height:1.5}
+.top #q{margin-top:6px}
+#q{min-height:56px;font-size:18px}
+.filters{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.4fr) minmax(0,.8fr);gap:6px;margin:8px 0 10px}
+.flt{min-height:44px;padding:0 6px;border:1px solid var(--border);border-radius:22px;background:var(--surface);color:var(--text);font:inherit;font-size:15px;cursor:pointer;white-space:nowrap}
+.flt[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:700}
+
+/* 名簿の行 */
+#list{list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"name name" "here pay";column-gap:12px;row-gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:0 0 8px}
+.row .name{grid-area:name;min-width:0;font-size:18px;font-weight:700;line-height:1.4;overflow-wrap:anywhere}
+.row .tag{display:inline-block;margin-left:6px;padding:0 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;color:var(--text2);vertical-align:2px;white-space:nowrap}
+.row .note{display:block;font-size:13px;font-weight:400;color:var(--text2);line-height:1.4}
+.row button{min-width:0;min-height:56px;border-radius:10px;font:inherit;cursor:pointer;line-height:1.2;padding:4px 6px}
+.row .here{grid-area:here;border:0;background:var(--accent);color:var(--on-accent);font-size:18px;font-weight:800}
+.row .pay{grid-area:pay;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;font-weight:700}
+.row .pay.due{border:2px solid var(--danger);color:var(--danger)}
+.row button small{display:block;font-size:12px;font-weight:700}
+.row .pay.due small{color:var(--danger)}
+.row.in{background:var(--accent-weak)}
+.row.in .here{background:var(--surface);color:var(--accent);border:1px solid var(--accent);font-size:16px}
+.empty{color:var(--text2);margin:8px 0 12px}
+.add{display:block;width:100%;min-height:56px;border:2px dashed var(--accent);border-radius:12px;background:transparent;color:var(--accent);font:inherit;font-size:16px;font-weight:700;cursor:pointer;margin:0 0 12px;overflow-wrap:anywhere}
+
+.cp-row{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.cp-btn{min-height:48px;padding:0 16px;border:1px solid var(--accent);border-radius:10px;background:var(--surface);color:var(--accent);font:inherit;font-weight:700;cursor:pointer}
+.copied{font-size:14px;color:var(--accent);font-weight:700}
+#notyetText,#memoText{font-size:16px;background:var(--bg)}
+.notes{font-size:14px;color:var(--text2);margin:12px 0 0;padding:0 0 0 18px}
+.mw-footer{max-width:1100px;margin:24px auto 0;padding:16px;border-top:1px solid var(--border);font-size:13px;color:var(--text2)}
+.mw-footer p{margin:4px 0}
+.mw-footer a{color:var(--accent)}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none !important}
+#modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+#modal .box{background:var(--surface);color:var(--text);border-radius:14px;padding:18px;max-width:420px;width:100%}
+#modal .box p{margin:0 0 4px;overflow-wrap:anywhere}
+#modal .choices{display:grid;gap:8px;margin-top:12px}
+#modal .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+#modal button{min-height:52px;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+#modal button.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+#modal button.cur{border:2px solid var(--accent)}
+#modal button.danger{color:var(--danger);border-color:var(--danger)}
+@media (min-width:960px){
+  html{scroll-padding-top:16px}
+  .desk{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start}
+  .top{margin:0;padding:6px 0 8px}
+  aside{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+}
+@media print{#modal{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>受付の名簿チェック</h1>
+    <p class="lead">手元の名簿を貼るだけで、受付ができます。名前の一部で探して「来た」「受け取った」を押すと、来場人数と、未収・受け取り済みの合計がその場で出ます。</p>
+    <p class="save-note" id="saveNote">名簿と受付の印は、この端末のブラウザにだけ保存します。外には送りません。終わったら「全部消す」を押してください。</p>
+  </header>
+
+  <!-- 名簿を貼る -->
+  <section id="setup">
+    <div class="panel">
+      <label class="lbl" for="roster">名簿を貼る（1行に1人）</label>
+      <textarea id="roster" placeholder="例）&#10;1. 田中 美咲&#10;2. 佐藤 健&#10;3. 鈴木 由紀　振込済"></textarea>
+      <p class="hint">LINEやメモからのコピー、表計算の列をそのまま貼れます。行の先頭の番号は外します。タブやカンマで区切った2列目以降（ふりがな・メモなど）は名前の下に小さく出し、探すときにも使います。そこに「振込済」「支払済」などがある人は、事前払い済みとして読み込みます。</p>
+      <p class="err" id="rosterErr"></p>
+    </div>
+    <div class="panel">
+      <label class="lbl" for="price">当日払いの金額（1人あたり・任意）</label>
+      <div class="price-row"><input type="text" id="price" inputmode="numeric" autocomplete="off" placeholder="例）3000"><span class="yen">円</span></div>
+      <p class="hint">入れると、未収と受け取り済みの金額も出ます。空のままなら人数だけを数えます。</p>
+      <p class="err" id="priceErr"></p>
+    </div>
+    <button type="button" class="big" id="loadBtn">受付をはじめる</button>
+  </section>
+
+  <!-- 受付中 -->
+  <div id="desk" class="desk" hidden>
+    <main>
+      <div class="top">
+        <div class="totals" aria-live="polite">
+          <div class="tot"><span class="k">来場</span><span class="n" id="tHere"></span><span class="m" id="tHereM"></span></div>
+          <div class="tot due" id="tDueBox"><span class="k">来場して未収</span><span class="n" id="tDue"></span><span class="m" id="tDueM"></span></div>
+          <div class="tot"><span class="k">受け取り済み</span><span class="n" id="tGot"></span><span class="m" id="tGotM"></span></div>
+        </div>
+        <p class="mini" id="tMini" aria-hidden="true"></p>
+        <label class="vh" for="q">名前で探す</label>
+        <input type="search" id="q" placeholder="名前の一部で探す（例：たなか）" autocomplete="off" enterkeyhint="search">
+      </div>
+      <p class="subline" id="tSub"></p>
+      <div class="filters" role="group" aria-label="絞り込み">
+        <button type="button" class="flt" data-f="all" aria-pressed="true">全員</button>
+        <button type="button" class="flt" data-f="notyet" aria-pressed="false">まだ来ていない</button>
+        <button type="button" class="flt" data-f="due" aria-pressed="false">未収</button>
+      </div>
+      <ul id="list"></ul>
+      <p class="empty" id="emptyMsg" hidden></p>
+      <button type="button" class="add" id="addBtn" hidden></button>
+    </main>
+    <aside>
+      <div class="panel">
+        <label class="lbl" for="price2">当日払いの金額（1人あたり・任意）</label>
+        <div class="price-row"><input type="text" id="price2" inputmode="numeric" autocomplete="off" placeholder="例）3000"><span class="yen">円</span></div>
+        <p class="err" id="price2Err"></p>
+      </div>
+      <div class="panel">
+        <h2>まだ来ていない人</h2>
+        <textarea id="notyetText" rows="4" readonly></textarea>
+        <div class="cp-row"><button type="button" class="cp-btn" id="copyNotyet">コピー</button><span class="copied" id="copiedNotyet" aria-live="polite"></span></div>
+        <h2 style="margin-top:16px">精算メモ</h2>
+        <textarea id="memoText" rows="7" readonly></textarea>
+        <div class="cp-row"><button type="button" class="cp-btn" id="copyMemo">コピー</button><span class="copied" id="copiedMemo" aria-live="polite"></span></div>
+      </div>
+      <button type="button" class="sub" id="reloadBtn">名簿を貼り直す</button>
+      <button type="button" class="sub warn" id="clearBtn">全部消す</button>
+      <ul class="notes">
+        <li>名簿に書いてある文字で探します。ひらがなとカタカナ、全角と半角、空白の違いは気にせず探せます。漢字の読みでは探せないため、ふりがなの列があれば一緒に貼ってください。</li>
+        <li>金額は「当日払いの金額 × 人数」です。事前払い済みの人は、いくら振り込まれたか分からないため金額に入れません。</li>
+        <li>受付を2台の端末でするときは、それぞれ別の名簿になります。</li>
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<div id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modalText">
+  <div class="box">
+    <p id="modalText"></p>
+    <div class="choices" id="modalChoices"></div>
+    <div class="row2" id="modalRow"><button type="button" id="modalNo">やめる</button><button type="button" class="go" id="modalYes">はい</button></div>
+  </div>
+</div>
+
+<footer class="mw-footer">
+  <p>みちAIワークス（MICHI AI WORKS）／代表 田中　泉</p>
+  <p>運営: <a href="https://michi-portfolio.vercel.app/" rel="noopener">みちAIワークス 公式サイト</a>（https://michi-portfolio.vercel.app/ ）／ お問い合わせ: <a href="mailto:nncf123nncf@gmail.com">nncf123nncf@gmail.com</a></p>
+  <p>貼った名簿と受付の印は、お使いの端末のブラウザの中（localStorage）にだけ保存し、当サイトには送信しません。「全部消す」で消えます。金額は、入力された当日払いの金額に人数を掛けたもので、実際に受け取ったお金と合っているかは確かめていません。アクセス解析（Cloudflare Web Analytics）で、ページの閲覧状況（閲覧数・参照元・ブラウザの種類など）を計測しています。</p>
+  <p>ログイン・会員登録・パスワードの入力を求めることはありません。</p>
+</footer>
+
+<script id="core">
+(function () {
+  'use strict';
+  var C = String.fromCharCode;
+  var CTRL = new RegExp('[' + C(0) + '-' + C(31) + C(127) + C(0x2028) + C(0x2029) + ']', 'g');
+  var MAX_PEOPLE = 200, MAX_NAME = 40, MAX_PRICE = 999999;
+  var HEADER_WORDS = ['名前', '氏名', 'お名前', 'なまえ', '参加者', '参加者名'];
+
+  function clean(s, max) {
+    var t = String(s == null ? '' : s).replace(CTRL, ' ').replace(/\s+/g, ' ').trim();
+    if (max && t.length > max) t = t.slice(0, max);
+    return t;
+  }
+  // 探すための正規化：全角半角・半角カナ（NFKC）、空白、カタカナ→ひらがな、大文字小文字
+  function norm(s) {
+    var t = String(s == null ? '' : s);
+    try { t = t.normalize('NFKC'); } catch (e) {}
+    t = t.replace(/\s+/g, '').toLowerCase();
+    return t.replace(/[ァ-ヶ]/g, function (c) { return C(c.charCodeAt(0) - 0x60); });
+  }
+  var NUM_HEAD = /^(?:[0-9０-９]+\s*[.)．）、,，:：]|[①-⑳㉑-㉟㊱-㊿]|[・•\-－*＊])\s*/;
+  function parseRoster(text) {
+    var lines = String(text == null ? '' : text).split(/\r\n|\r|\n/);
+    var people = [], over = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var raw = lines[i];
+      if (!raw.trim()) continue;
+      var cols = raw.split(/\t|,|，/);
+      var name = clean(cols[0].replace(NUM_HEAD, ''), MAX_NAME);
+      if (!name) continue;
+      if (people.length === 0 && HEADER_WORDS.indexOf(name) >= 0) continue;
+      var rest = cols.slice(1).join(' ');
+      var pre = !/未/.test(rest) && /済|払|振込/.test(rest);
+      if (people.length >= MAX_PEOPLE) { over++; continue; }
+      people.push({ name: name, note: clean(rest, 60), pay: pre ? 'pre' : 'due', here: false, at: '', added: false });
+    }
+    return { people: people, over: over };
+  }
+  // 金額：空→null、正しい→整数、だめ→NaN
+  function parsePrice(s) {
+    var t = String(s == null ? '' : s);
+    try { t = t.normalize('NFKC'); } catch (e) {}
+    t = t.replace(/[\s,円]/g, '');
+    if (t === '') return null;
+    if (!/^\d+$/.test(t)) return NaN;
+    var n = Number(t);
+    return n <= MAX_PRICE ? n : NaN;
+  }
+  function yen(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円'; }
+  function count(people) {
+    var c = { total: people.length, here: 0, pre: 0, got: 0, dueHere: 0, dueAway: 0, away: 0 };
+    people.forEach(function (p) {
+      if (p.here) c.here++; else c.away++;
+      if (p.pay === 'pre') c.pre++;
+      else if (p.pay === 'got') c.got++;
+      else if (p.here) c.dueHere++; else c.dueAway++;
+    });
+    return c;
+  }
+  function dupNames(people) {
+    var seen = {}, dup = {};
+    people.forEach(function (p) { var k = norm(p.name); if (seen[k]) dup[k] = true; seen[k] = true; });
+    return dup;
+  }
+  var WD = '日月火水木金土';
+  function stamp(d) {
+    function z(n) { return (n < 10 ? '0' : '') + n; }
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  function hhmm(d) { function z(n) { return (n < 10 ? '0' : '') + n; } return z(d.getHours()) + ':' + z(d.getMinutes()); }
+  function memo(people, price, now) {
+    var c = count(people), money = typeof price === 'number';
+    var out = ['【受付のまとめ】' + stamp(now) + ' 時点', '来場 ' + c.here + '／' + c.total + '人'];
+    out.push('事前払い済み ' + c.pre + '人');
+    out.push('受け取り済み（当日） ' + c.got + '人' + (money ? ' ' + yen(price * c.got) + '（' + yen(price) + '×' + c.got + '人）' : ''));
+    var dueHere = people.filter(function (p) { return p.here && p.pay === 'due'; }).map(function (p) { return p.name; });
+    out.push('来場して未収 ' + dueHere.length + '人' + (money ? ' ' + yen(price * dueHere.length) : '') + (dueHere.length ? '：' + dueHere.join('、') : ''));
+    var away = people.filter(function (p) { return !p.here; });
+    var awayDue = away.filter(function (p) { return p.pay === 'due'; }).length;
+    out.push('まだ来ていない ' + away.length + '人' + (awayDue ? '（うち未収 ' + awayDue + '人）' : '') + (away.length ? '：' + away.map(function (p) { return p.name; }).join('、') : ''));
+    return out.join('\n');
+  }
+  window.UKCore = { clean: clean, norm: norm, parseRoster: parseRoster, parsePrice: parsePrice, yen: yen, count: count, dupNames: dupNames, memo: memo, stamp: stamp, hhmm: hhmm };
+})();
+</script>
+
+<script id="ui">
+(function () {
+  'use strict';
+  var K = window.UKCore;
+  var KEY = 'uketsuke-check:v1';
+  function $(id) { return document.getElementById(id); }
+  var state = { loaded: false, people: [], price: null, priceRaw: '', filter: 'all', seq: 0 };
+  var canSave = true;
+
+  function save() {
+    if (!canSave) return;
+    try { localStorage.setItem(KEY, JSON.stringify({ v: 1, loaded: state.loaded, people: state.people, priceRaw: state.priceRaw, seq: state.seq })); }
+    catch (e) { canSave = false; noSaveNote(); }
+  }
+  function noSaveNote() {
+    $('saveNote').textContent = 'この端末では保存ができません（プライベートブラウズなど）。受付の印は、ページを閉じる・再読み込みすると消えます。';
+  }
+  function restore() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { canSave = false; noSaveNote(); return; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (!d || d.v !== 1 || !Array.isArray(d.people)) return;
+      state.people = d.people.slice(0, 260).map(function (p, i) {
+        return { id: typeof p.id === 'number' ? p.id : i + 1, name: K.clean(p.name, 40) || '（名前なし）', note: K.clean(p.note, 60),
+          pay: (p.pay === 'pre' || p.pay === 'got') ? p.pay : 'due', here: !!p.here,
+          at: /^\d{2}:\d{2}$/.test(p.at || '') ? p.at : '', added: !!p.added };
+      });
+      state.seq = Math.max(d.seq || 0, state.people.length);
+      state.priceRaw = typeof d.priceRaw === 'string' ? d.priceRaw.slice(0, 20) : '';
+      var pr = K.parsePrice(state.priceRaw);
+      state.price = typeof pr === 'number' && !isNaN(pr) ? pr : null;
+      state.loaded = !!d.loaded && state.people.length > 0;
+    } catch (e) {}
+  }
+
+  function setPrice(raw, errId) {
+    state.priceRaw = String(raw).slice(0, 20);
+    var p = K.parsePrice(state.priceRaw);
+    if (typeof p === 'number' && isNaN(p)) { $(errId).textContent = '金額は0〜999,999の数字で入れてください'; state.price = null; return false; }
+    $(errId).textContent = '';
+    state.price = p;
+    return true;
+  }
+
+  // 合計
+  function renderTotals() {
+    var c = K.count(state.people), money = typeof state.price === 'number';
+    $('tHere').innerHTML = '';
+    $('tHere').appendChild(document.createTextNode(c.here));
+    var sm = document.createElement('small'); sm.textContent = '／' + c.total + '人'; $('tHere').appendChild(sm);
+    $('tHereM').textContent = '';
+    $('tDue').textContent = c.dueHere + '人';
+    $('tDueM').textContent = money ? K.yen(state.price * c.dueHere) : '';
+    $('tDueBox').classList.toggle('zero', c.dueHere === 0);
+    $('tGot').textContent = c.got + '人';
+    $('tGotM').textContent = money ? K.yen(state.price * c.got) : '';
+    var sub = ['事前払い済み ' + c.pre + '人'];
+    if (c.dueAway) sub.push('まだ来ていない人のうち未収 ' + c.dueAway + '人');
+    $('tSub').textContent = sub.join('・');
+    $('tMini').textContent = '来場 ' + c.here + '／' + c.total + ' ・ 未収 ' + c.dueHere + '人 ・ 受取 ' + c.got + '人';
+  }
+
+  var holdId = null, holdUntil = 0, holdTimer = null;
+  function hold(id) {
+    holdId = id; holdUntil = Date.now() + 1500;
+    clearTimeout(holdTimer); holdTimer = setTimeout(function () { holdId = null; renderList(); }, 1550);
+  }
+  var PAY_LABEL = { pre: '事前払い済み', got: '受け取り済み', due: '未収' };
+  function renderList() {
+    var q = K.norm($('q').value);
+    var dup = K.dupNames(state.people);
+    var list = $('list');
+    list.textContent = '';
+    var rows = state.people.filter(function (p) {
+      if (state.filter === 'notyet' && p.here) return false;
+      if (state.filter === 'due' && p.pay !== 'due') return false;
+      return !q || K.norm(p.name + ' ' + (p.note || '')).indexOf(q) >= 0;
+    });
+    var now = Date.now();
+    function placed(x) { return x.here && !(holdId === x.id && now < holdUntil); }
+    rows.sort(function (a, b) { return (placed(a) === placed(b)) ? 0 : (placed(a) ? 1 : -1); });
+    rows.forEach(function (p) {
+      var li = document.createElement('li');
+      li.className = 'row' + (p.here ? ' in' : '') + (p.pay === 'due' ? '' : ' nodue');
+      li.setAttribute('data-id', p.id);
+      var nm = document.createElement('div'); nm.className = 'name'; nm.textContent = p.name;
+      if (dup[K.norm(p.name)]) { var t1 = document.createElement('span'); t1.className = 'tag'; t1.textContent = '同名'; nm.appendChild(t1); }
+      if (p.added) { var t2 = document.createElement('span'); t2.className = 'tag'; t2.textContent = '当日追加'; nm.appendChild(t2); }
+      if (p.note) { var nt = document.createElement('span'); nt.className = 'note'; nt.textContent = p.note; nm.appendChild(nt); }
+      var hb = document.createElement('button'); hb.type = 'button'; hb.className = 'here'; hb.setAttribute('data-act', 'here');
+      if (p.here) { hb.textContent = '✓ 来場'; var hs = document.createElement('small'); hs.textContent = p.at + '・押すと取消'; hb.appendChild(hs); }
+      else hb.textContent = '来た';
+      hb.setAttribute('aria-label', p.here ? p.name + 'さん 来場 ' + p.at + '（押して取り消す）' : p.name + 'さんが来た');
+      var pb = document.createElement('button'); pb.type = 'button'; pb.className = 'pay' + (p.pay === 'due' ? ' due' : '');
+      if (p.pay === 'due') {
+        pb.setAttribute('data-act', 'got');
+        var ps = document.createElement('small'); ps.textContent = '未収'; pb.appendChild(ps);
+        pb.appendChild(document.createTextNode('受け取った'));
+        pb.setAttribute('aria-label', p.name + 'さん：未収。押すと受け取り済みにする');
+      } else {
+        pb.setAttribute('data-act', 'status');
+        pb.appendChild(document.createTextNode('✓ ' + PAY_LABEL[p.pay]));
+        var ps2 = document.createElement('small'); ps2.textContent = '押して直す'; pb.appendChild(ps2);
+        pb.setAttribute('aria-label', p.name + 'さん：' + PAY_LABEL[p.pay] + '（押して直す）');
+      }
+      li.appendChild(nm); li.appendChild(hb); li.appendChild(pb);
+      list.appendChild(li);
+    });
+    var em = $('emptyMsg');
+    if (!rows.length) {
+      em.hidden = false;
+      em.textContent = q ? '「' + K.clean($('q').value, 40) + '」に当てはまる人は名簿にいません。' : (state.filter === 'notyet' ? '全員来ています。' : state.filter === 'due' ? '未収の人はいません。' : '名簿が空です。');
+    } else em.hidden = true;
+    // 名簿にない人を追加
+    var raw = K.clean($('q').value, 40);
+    var exact = raw && state.people.some(function (p) { return K.norm(p.name) === K.norm(raw); });
+    var ab = $('addBtn');
+    if (raw && !exact) { ab.hidden = false; ab.textContent = '＋「' + raw + '」さんを名簿に追加（当日参加）'; }
+    else ab.hidden = true;
+  }
+  function renderCopies() {
+    var away = state.people.filter(function (p) { return !p.here; }).map(function (p) { return p.name; });
+    $('notyetText').value = away.length ? away.join('\n') : '（全員来ています）';
+    $('memoText').value = K.memo(state.people, state.price, new Date());
+  }
+  function refresh() {
+    renderTotals(); renderList(); renderCopies(); save();
+  }
+  function show() {
+    $('setup').hidden = state.loaded;
+    $('desk').hidden = !state.loaded;
+    if (state.loaded) { $('price2').value = state.priceRaw; setPrice(state.priceRaw, 'price2Err'); refresh(); }
+    else { $('price').value = state.priceRaw; }
+  }
+
+  // 名簿を読み込む
+  $('loadBtn').addEventListener('click', function () {
+    var okPrice = setPrice($('price').value, 'priceErr');
+    var r = K.parseRoster($('roster').value);
+    if (!r.people.length) { $('rosterErr').textContent = '名簿に名前が1人も見つかりません。1行に1人ずつ貼ってください。'; return; }
+    if (!okPrice) return;
+    state.seq = 0;
+    state.people = r.people.map(function (p) { p.id = ++state.seq; return p; });
+    state.loaded = true; state.filter = 'all';
+    $('rosterErr').textContent = r.over ? MAXMSG(r.over) : '';
+    $('q').value = '';
+    setFilter('all');
+    show();
+    window.scrollTo(0, 0);
+    if (r.over) alertBox(MAXMSG(r.over));
+  });
+  function MAXMSG(n) { return '200人までしか読み込めません。201人目以降の' + n + '人は読み込んでいません。'; }
+  $('price').addEventListener('input', function () { setPrice(this.value, 'priceErr'); save(); });
+  $('price2').addEventListener('input', function () { setPrice(this.value, 'price2Err'); refresh(); });
+  $('q').addEventListener('input', renderList);
+  $('q').addEventListener('focus', function () { document.body.classList.add('searching'); });
+  // 検索欄から指を離しても、文字が残っているあいだは縮めたまま（押した瞬間に行がずれないように）
+  $('q').addEventListener('blur', function () { if (!$('q').value) document.body.classList.remove('searching'); });
+  $('q').addEventListener('search', function () { if (!$('q').value && document.activeElement !== $('q')) document.body.classList.remove('searching'); });
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Escape') { this.value = ''; renderList(); } });
+
+  function setFilter(f) {
+    state.filter = f;
+    Array.prototype.forEach.call(document.querySelectorAll('.flt'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-f') === f)); });
+  }
+  document.querySelector('.filters').addEventListener('click', function (e) {
+    var b = e.target.closest('.flt'); if (!b) return;
+    setFilter(b.getAttribute('data-f')); renderList();
+  });
+
+  function find(id) { for (var i = 0; i < state.people.length; i++) if (state.people[i].id === id) return state.people[i]; return null; }
+  function arrive(p) { if (!p.here) { p.here = true; p.at = K.hhmm(new Date()); } }
+
+  $('list').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]'); if (!b) return;
+    var li = b.closest('.row'); var p = find(Number(li.getAttribute('data-id'))); if (!p) return;
+    var act = b.getAttribute('data-act');
+    hold(p.id);
+    if (act === 'here') {
+      if (!p.here) { arrive(p); afterMark(); }
+      else ask(p.name + 'さんの「来場 ' + p.at + '」を取り消しますか？', '取り消す', function () { p.here = false; p.at = ''; afterMark(); });
+    } else if (act === 'got') {
+      p.pay = 'got'; arrive(p); afterMark();
+    } else if (act === 'status') {
+      choosePay(p);
+    }
+  });
+  function afterMark() {
+    refresh();
+  }
+
+  $('addBtn').addEventListener('click', function () {
+    var raw = K.clean($('q').value, 40); if (!raw) return;
+    var p = { id: ++state.seq, name: raw, pay: 'due', here: false, at: '', added: true };
+    arrive(p);
+    state.people.push(p);
+    refresh();
+  });
+
+  // ダイアログ
+  var modalCb = null;
+  function openModal(text) { $('modalText').textContent = text; $('modalChoices').textContent = ''; $('modal').hidden = false; }
+  function ask(text, yesLabel, cb) {
+    openModal(text);
+    $('modalRow').hidden = false; $('modalYes').hidden = false;
+    $('modalYes').textContent = yesLabel || 'はい'; $('modalNo').textContent = 'やめる';
+    modalCb = cb; $('modalNo').focus();
+  }
+  function alertBox(text) {
+    openModal(text); $('modalRow').hidden = false; $('modalYes').hidden = true; $('modalNo').textContent = '閉じる'; modalCb = null; $('modalNo').focus();
+  }
+  function choosePay(p) {
+    openModal(p.name + 'さんの支払い');
+    $('modalRow').hidden = false; $('modalYes').hidden = true; $('modalNo').textContent = 'やめる'; modalCb = null;
+    var box = $('modalChoices');
+    [['due', '未収'], ['got', '受け取り済み（当日）'], ['pre', '事前払い済み']].forEach(function (o) {
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = o[1] + (p.pay === o[0] ? '（いま）' : '');
+      if (p.pay === o[0]) b.className = 'cur';
+      b.addEventListener('click', function () { p.pay = o[0]; if (o[0] === 'got') arrive(p); closeModal(false); refresh(); });
+      box.appendChild(b);
+    });
+    if (p.added) {
+      var del = document.createElement('button'); del.type = 'button'; del.className = 'danger'; del.textContent = '当日追加を取り消す（名簿から外す）';
+      del.addEventListener('click', function () { state.people = state.people.filter(function (x) { return x !== p; }); closeModal(false); refresh(); });
+      box.appendChild(del);
+    }
+    box.firstChild.focus();
+  }
+  function closeModal(yes) {
+    $('modal').hidden = true;
+    var cb = modalCb; modalCb = null;
+    if (yes && cb) cb();
+  }
+  $('modalYes').addEventListener('click', function () { closeModal(true); });
+  $('modalNo').addEventListener('click', function () { closeModal(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeModal(false); });
+
+  $('reloadBtn').addEventListener('click', function () {
+    ask('名簿を貼り直すと、いまの受付の印（来場・支払い）は消えます。精算メモが必要なら、先にコピーしてください。', '貼り直す', function () {
+      $('roster').value = state.people.filter(function (p) { return !p.added; }).map(function (p) {
+        var rest = p.note || '';
+        if (p.pay === 'pre' && !(/済|払|振込/.test(rest) && !/未/.test(rest))) rest = (rest ? rest + ' ' : '') + '振込済';
+        return p.name + (rest ? '\t' + rest : '');
+      }).join('\n');
+      state.loaded = false; state.people = []; save(); show(); window.scrollTo(0, 0);
+    });
+  });
+  $('clearBtn').addEventListener('click', function () {
+    ask('名簿・金額・受付の印を、この端末から全部消します。元に戻せません。精算メモが必要なら、先にコピーしてください。', '全部消す', function () {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      state = { loaded: false, people: [], price: null, priceRaw: '', filter: 'all', seq: 0 };
+      $('roster').value = ''; $('price').value = ''; $('q').value = ''; $('priceErr').textContent = ''; $('rosterErr').textContent = '';
+      setFilter('all'); show(); window.scrollTo(0, 0);
+    });
+  });
+
+  // コピー
+  var copyTimers = {};
+  function copy(srcId, msgId) {
+    var src = $(srcId), msg = $(msgId), text = src.value;
+    function showMsg(t) { msg.textContent = t; clearTimeout(copyTimers[msgId]); copyTimers[msgId] = setTimeout(function () { msg.textContent = ''; }, 2000); }
+    function fallback() {
+      var ok = false;
+      try { src.readOnly = false; src.focus(); src.select(); src.setSelectionRange(0, text.length); ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      src.readOnly = true;
+      showMsg(ok ? 'コピーしました' : '文を選びました。長押し（または Ctrl+C）でコピーしてください');
+    }
+    if (srcId === 'memoText') { src.value = K.memo(state.people, state.price, new Date()); text = src.value; }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { showMsg('コピーしました'); }, fallback);
+    } else fallback();
+  }
+  $('copyNotyet').addEventListener('click', function () { copy('notyetText', 'copiedNotyet'); });
+  $('copyMemo').addEventListener('click', function () { copy('memoText', 'copiedMemo'); });
+
+  // 保存できない環境では、閉じるときに確かめる
+  window.addEventListener('beforeunload', function (e) {
+    if (!canSave && state.loaded) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  restore();
+  show();
+  window.UKUI = { state: function () { return state; }, refresh: refresh, show: show, setFilter: function (f) { setFilter(f); renderList(); } };
+})();
+</script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon='{"token": "b4c9f7e78daf4edb84ef52b88633f649"}'></script>
+</body>
+</html>
